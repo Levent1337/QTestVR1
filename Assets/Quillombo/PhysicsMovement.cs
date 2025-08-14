@@ -7,6 +7,7 @@ public class PhysicsMovement : MonoBehaviour
     [Header("Input")]
     public InputActionProperty moveAction;
     public InputActionProperty turnAction;
+    public InputActionProperty jumpAction; 
 
     [Header("Movement Settings")]
     public float moveSpeed = 3f;
@@ -16,13 +17,17 @@ public class PhysicsMovement : MonoBehaviour
     private Vector2 inputMoveAxis;
     private float inputTurnAxis;
 
+    private float jumpVelocity = 7;
+    public bool onlyMoveWhenGrounded = false;
+    public float jumpHeight = 1.5f; 
+
     [Header("References")]
     public Transform directionSource;
     public LayerMask groundLayer;
     public CapsuleCollider bodyCollider;
     public Rigidbody rb;
     public Transform turnSource;
-
+    private bool isGrounded;
 
     void Start()
     {
@@ -39,18 +44,26 @@ public class PhysicsMovement : MonoBehaviour
     public void Update()
     {
         inputMoveAxis = moveAction.action.ReadValue<Vector2>();
-        Debug.Log($"move Axis: {inputMoveAxis}");
+        
         Vector2 turnInput = turnAction.action.ReadValue<Vector2>();
         inputTurnAxis = turnInput.x;
-        Debug.Log($"[DEBUG] Full Turn Vector2: {turnInput}, X: {turnInput.x}");
+        
+
+        bool jumpInput = jumpAction.action.WasPressedThisFrame();
+
+        if (jumpInput && isGrounded)
+        {
+            jumpVelocity = Mathf.Sqrt(2 * -Physics.gravity.y * jumpHeight);
+             rb.linearVelocity = Vector3.up *jumpVelocity;
+        }
     }
     void FixedUpdate()
     { 
        
 
-        bool isGrounded = checkIfGrounded();
+         isGrounded = checkIfGrounded();
         
-        if(isGrounded) 
+        if(!onlyMoveWhenGrounded || (onlyMoveWhenGrounded && isGrounded))
         {
             Quaternion yaw = Quaternion.Euler(0, directionSource.eulerAngles.y, 0);
             Vector3 direction = yaw * new Vector3(inputMoveAxis.x, 0, inputMoveAxis.y);

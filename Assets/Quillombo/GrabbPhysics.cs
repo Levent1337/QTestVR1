@@ -3,51 +3,63 @@ using UnityEngine.InputSystem;
 
 public class GrabPhysics : MonoBehaviour
 {
-
-    public InputAction grabInputSource;
-        public float radius = 0.1f;
+    public InputActionReference grabInputSource;
+    public float radius = 0.1f;
     public LayerMask grabLayer;
+
     private FixedJoint fixedJoint;
     private bool isGrabbing;
+    private InputAction grabAction;
 
-
-    private void FixedUpdate()
+    void OnEnable()
     {
-        bool isGrabButtonPressed = grabInputSource.ReadValue<float>() > 0.1f;
+        grabAction = grabInputSource != null ? grabInputSource.action : null;
+        
+    }
 
-        if(isGrabButtonPressed && !isGrabbing)
+    void OnDisable()
+    {
+        grabAction?.Disable();
+        if (fixedJoint) Destroy(fixedJoint);
+        isGrabbing = false;
+    }
+
+    void FixedUpdate()
+    {
+        if (grabAction == null) return;
+
+        // If your action is a Button, IsPressed() is perfect:
+        bool isGrabButtonPressed = grabAction.IsPressed();
+        // or: bool isGrabButtonPressed = grabAction.ReadValue<float>() > 0.1f;
+
+        if (isGrabButtonPressed && !isGrabbing)
         {
-            Collider[] nearbyColliders = Physics.OverlapSphere(transform.position,radius,grabLayer,QueryTriggerInteraction.Ignore);
-
-            if (nearbyColliders.Length > 0)
+            var cols = Physics.OverlapSphere(transform.position, radius, grabLayer, QueryTriggerInteraction.Ignore);
+            if (cols.Length > 0)
             {
-                Rigidbody nearbyRigidbody = nearbyColliders[0].attachedRigidbody;
+                var rb = cols[0].attachedRigidbody;
 
                 fixedJoint = gameObject.AddComponent<FixedJoint>();
                 fixedJoint.autoConfigureConnectedAnchor = false;
-                if (nearbyRigidbody)
+
+                if (rb)
                 {
-                    fixedJoint.connectedBody = nearbyRigidbody;
-                    fixedJoint.connectedAnchor = nearbyRigidbody.transform.InverseTransformPoint(transform.position); 
-                    
+                    fixedJoint.connectedBody = rb;
+                    fixedJoint.connectedAnchor = rb.transform.InverseTransformPoint(transform.position);
                 }
                 else
                 {
+                    fixedJoint.connectedBody = null;              // stick to world
                     fixedJoint.connectedAnchor = transform.position;
                 }
 
-                isGrabbing = true; 
-
+                isGrabbing = true;
             }
         }
-        else if(!isGrabbing && isGrabbing)
+        else if (!isGrabButtonPressed && isGrabbing)
         {
             isGrabbing = false;
-
-            if(fixedJoint)
-            {
-                Destroy(fixedJoint);
-            }
+            if (fixedJoint) Destroy(fixedJoint);
         }
     }
 }

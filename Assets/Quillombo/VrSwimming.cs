@@ -1,61 +1,171 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using UnityEngine.UIElements;
 
-[RequireComponent(typeof(Rigidbody))]
-public class VRSwimming : MonoBehaviour
+[DisallowMultipleComponent]
+public class VRSwimmingRoot : MonoBehaviour
 {
-    [Header("XR Controller References")]
-    public Transform leftController;
-    public Transform rightController;
+    [Header("Input")]
+    public InputActionProperty swimAction;         // trigger/grip action (InputActionReference)
 
-    [Header("Grip Input Actions")]
-    public InputActionProperty leftGripAction;   // Assign LeftGrip from Input Actions
-    public InputActionProperty rightGripAction;  // Assign RightGrip from Input Actions
+    [Header("References (child body)")]
+    public Rigidbody bodyRB;                       // main body RB living on a CHILD
+    public Transform leftHand;
+    public Transform rightHand;
 
-    [Header("Swimming Settings")]
-    public float swimForce = 4f;
-    public float drag = 2f;
-    public bool requireGrip = true;
+    [Header("Water Filter")]
+    public string waterTag = "Water";              // tag on water trigger volumes; leave empty to accept any trigger
+    public bool requireTrigger = true;             // water colliders must be triggers
 
-    private Rigidbody rb;
-    private Vector3 lastLeftPos;
-    private Vector3 lastRightPos;
+    [Header("Buoyancy & Damping")]
+    public float buoyancyAccel = 0.75f;            // passive upward accel (m/s^2)
+    public float waterLinearDamping = 4f;          // Unity 6: Rigidbody.linearDamping
+    public float waterAngularDamping = 2f;         // Unity 6: Rigidbody.angularDamping
+
+    [Header("Stroke Propulsion")]
+    public float strokeAccelPerMS = 2.25f;         // accel per 1 m/s of hand speed
+    public float maxSwimSpeed = 3.5f;              // 0 = uncapped
+    [Range(0f, 0.95f)] public float handVelSmoothing = 0.2f;
+
+    [Header("Interop")]
+    public bool disableStickLocomotion = true;
+    public Behaviour movementComponent;            // drag your PhysicsMovement here (optional)
+
+    [Header("Debug")]
+    public bool debugLogs = true;
+
+    // state
+    bool inWater;
+    int overlapCount;                              // supports overlapping volumes
+    Vector3 prevL, prevR, velL, velR;
+    float origLinDamp, origAngDamp;
+
+    void OnEnable()
+    {
+        var act = swimAction.action;
+        if (act != null && !act.enabled) act.Enable();
+    }
 
     void Start()
     {
-        rb = GetComponent<Rigidbody>();
-        rb.useGravity = false;
-        rb.linearDamping = 1;
+        if (bodyRB == null)
+        {
+            Debug.LogError("[VRSwimmingRoot] bodyRB is not assigned. Drag your CHILD Rigidbody here.");
+            enabled = false;
+            return;
+        }
 
-        if (leftController != null)
-            lastLeftPos = leftController.position;
-        if (rightController != null)
-            lastRightPos = rightController.position;
+        // cache damping
+        origLinDamp = bodyRB.linearDamping;
+        origAngDamp = bodyRB.angularDamping;
 
-        // Enable input actions so we can read them
-        if (leftGripAction.action != null) leftGripAction.action.Enable();
-        if (rightGripAction.action != null) rightGripAction.action.Enable();
+        if (leftHand != null) prevL = leftHand.position;
+        if (rightHand != null) prevR = rightHand.position;
+
+        // make sure at least one collider exists under the body RB (compound collider)
+        if (bodyRB.GetComponentInChildren<Collider>(true) == null)
+        {
+            Debug.LogWarning("[VRSwimmingRoot] No Collider found in bodyRB's hierarchy. " +
+                             "Move your body collider under the same child that has the Rigidbody.");
+        }
+
+        if (debugLogs)
+            Debug.Log($"[VRSwimmingRoot] Ready on '{name}'. Using child RB '{bodyRB.name}'.");
     }
 
     void FixedUpdate()
     {
-        if (leftController == null || rightController == null) return;
+        float dt = Time.fixedDeltaTime;
 
-        Vector3 leftDelta = leftController.position - lastLeftPos;
-        Vector3 rightDelta = rightController.position - lastRightPos;
+        if (leftHand != null)
+        {
+            Vector3 inst = (leftHand.position - prevL) / Mathf.Max(dt, 1e-5f);
+            velL = Vector3.Lerp(inst, velL, handVelSmoothing);
+            prevL = leftHand.position;
+        }
+        if (rightHand != null)
+        {
+            Vector3 inst = (rightHand.position - prevR) / Mathf.Max(dt, 1e-5f);
+            velR = Vector3.Lerp(inst, velR, handVelSmoothing);
+            prevR = rightHand.position;
+        }
 
-        // Check grip input
-        bool swimLeft = !requireGrip || (leftGripAction.action != null && leftGripAction.action.IsPressed());
-        bool swimRight = !requireGrip || (rightGripAction.action != null && rightGripAction.action.IsPressed());
+        if (!inWater) return;
 
-        if (swimLeft)
-            rb.AddForce(-leftDelta * swimForce, ForceMode.Acceleration);
+        // 1) Passive buoyancy (mass-agnostic)
+        bodyRB.AddForce(Vector3.up * buoyancyAccel, ForceMode.Acceleration);
 
-        if (swimRight)
-            rb.AddForce(-rightDelta * swimForce, ForceMode.Acceleration);
+        // 2) Strokes while button held
+        var act = swimAction.action;
+        if (act != null && act.IsPressed())
+        {
+            Vector3 swimAccel = -velL - velR; // push water back -> go forward
+            bodyRB.AddForce(swimAccel * strokeAccelPerMS, ForceMode.Acceleration);
+        }
 
-        lastLeftPos = leftController.position;
-        lastRightPos = rightController.position;
+        // 3) Optional speed cap
+        if (maxSwimSpeed > 0f)
+        {
+            Vector3 v = bodyRB.linearVelocity;
+            float m = v.magnitude;
+            if (m > maxSwimSpeed)
+                bodyRB.linearVelocity = v * (maxSwimSpeed / m);
+        }
+    }
+
+    // -------- Called by SwimTriggerRelay on the child RB --------
+    public void RelayTriggerEnter(Collider other, Component sender)
+    {
+        if (!PassesWaterFilter(other))
+        {
+            if (debugLogs) Debug.Log($"[VRSwimmingRoot] IGNORE enter '{other.name}' ({sender.name}).");
+            return;
+        }
+        overlapCount++;
+        if (!inWater) EnterWater();
+        if (debugLogs) Debug.Log($"[VRSwimmingRoot] ENTER water via '{other.name}' ({sender.name}). overlaps={overlapCount}");
+    }
+
+    public void RelayTriggerExit(Collider other, Component sender)
+    {
+        if (!PassesWaterFilter(other))
+        {
+            if (debugLogs) Debug.Log($"[VRSwimmingRoot] IGNORE exit '{other.name}' ({sender.name}).");
+            return;
+        }
+        overlapCount = Mathf.Max(0, overlapCount - 1);
+        if (debugLogs) Debug.Log($"[VRSwimmingRoot] EXIT water via '{other.name}' ({sender.name}). overlaps={overlapCount}");
+        if (inWater && overlapCount == 0) ExitWater();
+    }
+
+    // -------- enter/exit & helpers --------
+    bool PassesWaterFilter(Collider other)
+    {
+        if (requireTrigger && !other.isTrigger) return false;
+        if (!string.IsNullOrEmpty(waterTag) && !other.CompareTag(waterTag)) return false;
+        return true;
+    }
+
+    void EnterWater()
+    {
+        inWater = true;
+        origLinDamp = bodyRB.linearDamping;
+        origAngDamp = bodyRB.angularDamping;
+        bodyRB.linearDamping = waterLinearDamping;
+        bodyRB.angularDamping = waterAngularDamping;
+        if (disableStickLocomotion && movementComponent != null) movementComponent.enabled = false;
+
+        if (debugLogs)
+            Debug.Log($"[VRSwimmingRoot] >>> ENTERED water. linDamp={bodyRB.linearDamping:F2}, angDamp={bodyRB.angularDamping:F2}");
+    }
+
+    void ExitWater()
+    {
+        inWater = false;
+        bodyRB.linearDamping = origLinDamp;
+        bodyRB.angularDamping = origAngDamp;
+        if (disableStickLocomotion && movementComponent != null) movementComponent.enabled = true;
+
+        if (debugLogs)
+            Debug.Log($"[VRSwimmingRoot] <<< EXITED water. linDamp={bodyRB.linearDamping:F2}, angDamp={bodyRB.angularDamping:F2}");
     }
 }
