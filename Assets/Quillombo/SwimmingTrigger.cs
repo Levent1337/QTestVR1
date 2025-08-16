@@ -1,21 +1,23 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Rigidbody))]
-public class SwimTriggerRelay : MonoBehaviour
+
+public class VRSwimming : MonoBehaviour
 {
-    [Tooltip("VRSwimmingRoot on the ROOT object.")]
-    public VRSwimmingRoot receiver;
+    [Header("References")]
+    public Rigidbody targetRb;       
+    public WaterProbe waterProbe;
 
-    // This object (or its children) must have your NON-trigger body collider.
-    // Water volumes must be TRIGGERS (with tag 'Water' unless you cleared the tag check).
+    [Header("Buoyancy")]
+    [Tooltip("Upward buoyant force in Newtons. ~mass * 9.81 for neutral float.")]
+    public float buoyantForce = 100f;
 
-    void OnTriggerEnter(Collider other)
+    void FixedUpdate()
     {
-        if (receiver) receiver.RelayTriggerEnter(other, this);
-    }
+        if (targetRb == null || waterProbe == null) return;
 
-    void OnTriggerExit(Collider other)
-    {
-        if (receiver) receiver.RelayTriggerExit(other, this);
+        if (waterProbe.isInWater)
+        {
+            targetRb.AddForce(Vector3.up * buoyantForce, ForceMode.Force);
+        }
     }
 }

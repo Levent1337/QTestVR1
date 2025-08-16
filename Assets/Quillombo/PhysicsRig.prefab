@@ -48,6 +48,11 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   playerHead: {fileID: 4684120815679806338}
   bodyCollider: {fileID: 7359618633077992232}
+  LeftController: {fileID: 0}
+  RightController: {fileID: 0}
+  HeadJoint: {fileID: 0}
+  LeftHandJoint: {fileID: 0}
+  RightHandJoint: {fileID: 0}
   bodyHeightMin: 0.5
   bodyHeightMax: 2
 --- !u!114 &4862141344463749941
@@ -86,9 +91,23 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: -6493913391331992944, guid: c348712bda248c246b8c49b3db54643f, type: 3}
+  jumpAction:
+    m_UseReference: 0
+    m_Action:
+      m_Name: 
+      m_Type: 0
+      m_ExpectedControlType: 
+      m_Id: 5208f3f6-cdc5-452d-a4a8-5833c6fa2590
+      m_Processors: 
+      m_Interactions: 
+      m_SingletonActionBindings: []
+      m_Flags: 0
+    m_Reference: {fileID: 0}
   moveSpeed: 3
   turnSpeed: 60
   inputDeadzone: 0.15
+  onlyMoveWhenGrounded: 0
+  jumpHeight: 1.5
   directionSource: {fileID: 4684120815679806338}
   groundLayer:
     serializedVersion: 2
