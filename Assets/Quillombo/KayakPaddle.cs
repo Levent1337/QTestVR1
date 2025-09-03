@@ -10,7 +10,7 @@ public class KayakPaddle : MonoBehaviour
     [Header("Force Settings")]
     public float paddleForceMultiplier = 15f;
     public float minMovementThreshold = 0.05f;
-    public float sidewaysFactor = 0.5f;
+    public float sidewaysFactor = 0.2f;
 
     [Header("Smoothing")]
     public float velocitySmoothing = 10f;

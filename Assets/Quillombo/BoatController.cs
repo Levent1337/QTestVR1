@@ -6,7 +6,7 @@ public class BoatController : MonoBehaviour
     [Header("Boat Settings")]
     public float forwardDrag = 0.2f;
     public float sidewaysDrag = 2.0f;
-    public float angularDamping = 1f;
+    public float angularDamping = 1f;     // consider renaming to 'angularDrag' (see Awake)
     public float maxSpeed = 10f;
 
     [Header("Buoyancy Settings")]
@@ -16,13 +16,15 @@ public class BoatController : MonoBehaviour
     public float pitchDampingFactor = 0.5f;
     public float yawDampingFactor = 0.2f;
 
-    public Transform northPoint;
-    public Transform southPoint;
-    public Transform eastPoint;
-    public Transform westPoint;
+    public Transform northPoint, southPoint, eastPoint, westPoint;
 
     [Tooltip("The water volume (must be a BoxCollider with tag 'Water')")]
     public BoxCollider waterCollider;
+
+    // NEW: tune how much rotation a paddle stroke adds
+    [Header("Paddle Coupling")]
+    [Range(0f, 1f)] public float paddleTorqueScale = 0.25f; // lower = less rotation
+    public float paddleForceScale = 1.0f;                   // keep linear push strength
 
     private Rigidbody rb;
 
@@ -30,7 +32,12 @@ public class BoatController : MonoBehaviour
     {
         rb = GetComponent<Rigidbody>();
         rb.useGravity = true;
+
+        // If this was intended as Unity's angular drag, use angularDrag (Rigidbody doesn't have 'angularDamping')
         rb.angularDamping = angularDamping;
+
+        // Optional: cap spin so yaw can't explode
+        rb.maxAngularVelocity = 3.0f;
     }
 
     private void FixedUpdate()
@@ -98,6 +105,12 @@ public class BoatController : MonoBehaviour
 
     public void ApplyPaddleForce(Vector3 force, Vector3 applicationPoint)
     {
-        rb.AddForceAtPosition(force, applicationPoint, ForceMode.Force);
+        // Split into linear + scaled torque instead of AddForceAtPosition (which always injects full torque)
+        rb.AddForce(force * paddleForceScale, ForceMode.Force);
+
+        Vector3 r = applicationPoint - rb.worldCenterOfMass;
+        Vector3 torque = Vector3.Cross(r, force);
+        rb.AddTorque(torque * paddleTorqueScale, ForceMode.Force);
     }
+
 }
